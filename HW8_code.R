@@ -39,6 +39,7 @@ plot(Yield ~ Fertilizer)
 abline(lm2)
 
 
+
   ## 1c 
 model1 <- lm(Yield ~ (Fertilizer + fert_sqed))
 
