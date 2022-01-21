@@ -1,0 +1,1128 @@
+---
+title: "Final_Project"
+author: "Annabelle"
+date: "11/30/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load in packages
+```{r}
+library(here)
+library(readxl)
+library(skimr) #super nice summary package 
+library(car)
+library(MASS)
+library(tidyverse)
+library(corrplot)
+library(effects)
+library(ResourceSelection) #for testing glm fit
+library(DHARMa) # For testing overdispersion
+library(kableExtra)
+library(stargazer) #tables for models
+library(parallelMap) #For classification tree
+library(parallel) # For the cross-validating of the decision tree
+```
+
+
+Load data files
+```{r}
+
+ALL <- read_excel(here("Final_Project", "PasturedPoultryFarms.xlsx"), sheet = "All")
+
+# For questions 1 & 2: 
+Broilers <- read_excel(here("Final_Project", "PasturedPoultryFarms.xlsx"), sheet = "Broilers")
+
+# For question 3: 
+FecalSoil <- read_excel(here("Final_Project", "PasturedPoultryFarms.xlsx"), sheet = "FecalSoil")
+
+# For question 5: 
+Compositional <- read_excel(here("Final_Project", "PasturedPoultryFarms.xlsx"), sheet = "Compositional")
+```
+
+Check out the data 
+```{r}
+skim(ALL)
+skim(Broilers)
+skim(FecalSoil)
+skim(Compositional)
+```
+
+
+might want to split first column in the All dataset up so have seperate columns with farm label and flock label.. (nope already been done)
+
+### Question 1
+
+Poultry Science researchers were wondering whether presence/absence
+of Camplyobacter was predictive of presence/absence of either Salmonella or Listeria, and, similarly,
+whether Salmonella presence/absence could be used to predict Listeria presence/absence. Develop
+statistical models/tests for all three of these situations and state your conclusions. 
+
+
+
+```{r}
+
+# BacS ~ BacC
+BacS_BacC_glm <- glm(Salmonella ~ Campylobact, family = binomial(link = logit), data = Broilers)
+summary(BacS_BacC_glm)
+
+plot(Broilers$Campylobact, Broilers$Salmonella, main="Fit of data", xlim = c(0,1))
+points(Broilers$Campylobact,pnorm(BacS_BacC_glm$coef[1]+Broilers$Campylobact*BacS_BacC_glm$coef[2]), col = 2, pch = 20, type = "l")
+#x1 <- sort(df3$temp)
+x1 <- seq(0, 1, by = .0025)
+y1 <- pnorm(BacS_BacC_glm$coef[1]+x1*BacS_BacC_glm$coef[2])
+points(x1, y1, col = 5, pch = 50, type = "l")
+#points(x1, y1, col = 4, pch = 20, type = "p")
+
+
+
+# BacL ~ BacC
+BacL_BacC_glm <- glm(Listeria ~ Campylobact, family = binomial(link = logit), data = Broilers)
+summary(BacL_BacC_glm)
+
+plot(Broilers$Campylobact, Broilers$Listeria, main="Fit of data", xlim = c(0,1))
+points(Broilers$Listeria,pnorm(BacL_BacC_glm$coef[1]+Broilers$Campylobact*BacL_BacC_glm$coef[2]), col = 2, pch = 20, type = "l")
+#x1 <- sort(df3$temp)
+x1 <- seq(0, 1, by = .0025)
+y1 <- pnorm(BacL_BacC_glm$coef[1]+x1*BacL_BacC_glm$coef[2])
+points(x1, y1, col = 5, pch = 50, type = "l")
+#points(x1, y1, col = 4, pch = 20, type = "p")
+
+
+
+
+# BacL ~ BacS
+BacL_BacS_glm <- glm(Listeria ~ Salmonella, family = binomial(link = logit), data = Broilers)
+summary(BacL_BacS_glm)
+
+plot(Broilers$Salmonella, Broilers$Salmonella, main="Fit of data", xlim = c(0,1))
+points(Broilers$Listeria,pnorm(BacL_BacS_glm$coef[1]+Broilers$Campylobact*BacL_BacS_glm$coef[2]), col = 2, pch = 20, type = "l")
+#x1 <- sort(df3$temp)
+x1 <- seq(0, 1, by = .0025)
+y1 <- pnorm(BacL_BacS_glm$coef[1]+x1*BacL_BacS_glm$coef[2])
+points(x1, y1, col = 5, pch = 50, type = "l")
+#points(x1, y1, col = 4, pch = 20, type = "p")
+
+```
+
+Notes: 
+- Only intercepts are significant
+- Co-occurrence model as glm 
+
+
+
+```{r}
+mod_Broilers <- Broilers
+new <- mod_Broilers %>% filter(Campylobact == 1)
+dim(new) #841
+new1 <- new %>% filter(Salmonella == 1)
+dim(new1) #151 
+
+
+df1 <- mod_Broilers %>% pivot_longer(c(Campylobact, Salmonella, Listeria), names_to = 'Bac', values_to = 'Count')
+
+#Given Bac C is present, how many 1s and 0s of BacL and BacS are there 
+
+Campylobact_1 <- mod_Broilers %>% filter(Campylobact == 1) 
+colSums(Campylobact_1[,c(8:10)])
+
+Campylobact_0 <- mod_Broilers %>% filter(Campylobact == 0) 
+colSums(Campylobact_0[,c(8:10)])
+dim(Campylobact_0)#will give correct number of Campylobact = 0 [[1049]]
+
+
+Campylobact_1 <- mod_Broilers %>% filter(Campylobact == 1) 
+colSums(Campylobact_1[,c(8:10)])
+
+Campylobact_0 <- mod_Broilers %>% filter(Campylobact == 0) 
+colSums(Campylobact_0[,c(8:10)])
+dim(Campylobact_0)#will give correct number of Campylobact = 0 [[1049]]
+
+#Given Bac S is present, how many 1s and 0s of BacL are there 
+Salmonella_1 <- mod_Broilers %>% filter(Salmonella == 1) 
+colSums(Salmonella_1[,c(8:10)])
+
+Salmonella_0 <- mod_Broilers %>% filter(Salmonella == 0) 
+colSums(Salmonella_0[,c(8:10)])
+dim(Salmonella_0)#will give correct number of Campylobact = 0 [[1567]]
+
+
+# Back calculated the rest of the tables which results in.... 
+
+#BacS ~ BacC
+BacS_given_BacC <- data.frame (BacC0  = c(877, 690),
+                  BacC1 = c(172, 151)
+                  )
+rownames(BacS_given_BacC) <- c("BacS0", "BacS1")
+
+
+#BacL ~ BacC
+BacL_given_BacC <- data.frame (BacC0  = c(891, 715),
+                  BacC1 = c(158, 126)
+                  )
+rownames(BacL_given_BacC) <- c("BacL0", "BacL1")
+
+
+#BacL ~ BacS
+BacL_given_BacS <- data.frame (BacS0  = c(1326, 280),
+                  BacS1 = c(241, 43)
+                  )
+rownames(BacL_given_BacS) <- c("BacL0", "BacL1")
+
+
+chisq.test(BacS_given_BacC)
+chisq.test(BacL_given_BacC)
+chisq.test(BacL_given_BacS)
+
+matBacS_given_BacC <- as.matrix(BacS_given_BacC)
+corrplot(matBacS_given_BacC, is.cor = FALSE)
+chsq <- chisq.test(BacS_given_BacC)
+chsq$residuals
+corrplot(chsq$residuals, is.cor = FALSE)
+contrib <- 100*chsq$residuals^2/chsq$statistic
+round(contrib, 3)
+corrplot(contrib, is.cor = FALSE)
+# printing the p-value
+chsq$p.value
+# printing the mean
+chsq$estimate
+
+
+## Try to make bar graph representing raw counts in chi square counts 
+df2 <- df1[-which(is.na(df1$Count )),] # remove NAs
+
+df2 %>% ggplot((aes(factor(Bac), fill = factor(Count)))) + 
+  geom_bar(position = position_dodge(preserve = "single")) + 
+  ggtitle("Count of the presence and absence of pathogens") + 
+  scale_y_continuous(name = "Count")+
+  labs(fill = "Present or Absent") + 
+  scale_x_discrete(name = "Name of Pathogen")
+
+### FIGRUE 1 
+
+ggsave(filename = "Figure1_Q1_CountPathogens.png" , width = 10, heigh = 5, device = 'png')
+
+
+```
+
+
+
+
+
+Need to make Tables for raw counts for chi square analysis 
+```{r}
+
+# Back calculated the rest of the tables which results in.... 
+
+#BacS ~ BacC
+BacS_given_BacC <- data.frame (BacC_0  = c(877, 690, 1567),
+                  BacC_1 = c(172, 151, 323),
+                  Total = c(1049, 841, 1890)
+                  )
+rownames(BacS_given_BacC) <- c("BacS_0", "BacS_1", "Total")
+
+
+#BacL ~ BacC
+BacL_given_BacC <- data.frame (BacC0  = c(891, 715, 1606),
+                  BacC1 = c(158, 126, 284), 
+                  Total = c(1049, 841, 1890)
+                  )
+rownames(BacL_given_BacC) <- c("BacL0", "BacL1", "Total")
+
+
+#BacL ~ BacS
+BacL_given_BacS <- data.frame (BacS0  = c(1326, 280, 1606),
+                  BacS1 = c(241, 43, 284),
+                  Total = c(1567, 323, 1890)
+                  )
+rownames(BacL_given_BacS) <- c("BacL0", "BacL1", "Total")
+
+```
+
+
+
+
+### Question 2
+
+Exploratory analysis - correlation matrix 
+Note - this will mess up knit because functions are defined below... 
+```{r}
+
+
+#Fit need to create dummy variables for response variables.. 
+
+Broilers2 <- Broilers
+
+#First remove NAs
+Broilers2 <- Broilers2[-which(is.na(Broilers2$SampleType )),] # remove NAs
+
+
+## Make set up for box plots... 
+Broilers4 <- Broilers2 %>% 
+  mutate(Feces = case_when(grepl("Feces", SampleType, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Soil = case_when(grepl("Soil", SampleType, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Layer = case_when(grepl("Ceca", SampleType, ignore.case = TRUE) ~ 1))%>% 
+  mutate(WCR_P = case_when(grepl("WCR-P", SampleType, ignore.case = TRUE) ~ 1))%>% 
+  mutate(WCR_F = case_when(grepl("WCR-F", SampleType, ignore.case = TRUE) ~ 1)) %>% 
+  replace(is.na(.), 0) 
+
+
+
+#.. Not sure if this is worth doing for binary data.. 
+
+#pairs(FecalSoil2[c(7,11:16)], lower.panel=panel.smooth, cex = .8, pch = 21, bg="steelblue",
+   #    diag.panel=panel.hist, cex.labels = 1.2, font.labels=2, upper.panel=panel.cor)
+
+
+
+
+
+
+
+df2 %>% ggplot((aes(factor(Bac), fill = factor(Count)))) + 
+  geom_bar(position = position_dodge(preserve = "single"))
+
+Broilers4 %>% 
+  ggplot(aes(x=factor(SampleType), fill = factor(Campylobact) )) + 
+  geom_bar(stat = "count", position = "fill") + 
+  scale_y_continuous(labels = scales::percent) +
+  ggtitle("Relationship Between Sample Type and Campylobact") + 
+  scale_x_discrete(name = "Sample Type") +
+  labs(fill = "Present (1) or Absent (0)")
+
+
+ggsave(filename = "Figure2a_Q2_Type_BacC.png" , width = 10, heigh = 5, device = 'png')
+
+
+Broilers4 %>% 
+  ggplot(aes(x=factor(Month), fill = factor(Campylobact) )) + 
+  geom_bar(stat = "count", position = "fill") + 
+  scale_y_continuous(labels = scales::percent) +
+  ggtitle("Relationship Between Month and Campylobact") + 
+  scale_x_discrete(name = "Month") +
+  labs(fill = "Present (1) or Absent (0)")
+
+ggsave(filename = "Figure2b_Q2_Month_BacC.png" , width = 10, heigh = 5, device = 'png')
+
+
+```
+
+
+
+```{r}
+
+Month_type_BacC <- Broilers %>% group_by(Month, SampleType) %>% summarise(countCampylobact = sum(Campylobact)) 
+
+Type_Month_BacC <- Broilers %>% group_by(SampleType, Month) %>% summarise(countCampylobact = sum(Campylobact)) 
+
+
+#find denominator 
+denom1 <- Broilers %>% group_by(Month, SampleType) %>% summarize(count=n()) 
+denom2 <- Broilers %>% group_by(SampleType, Month) %>% summarize(count=n()) 
+
+
+#Add to other dataset 
+Month_type_BacC <- full_join(Month_type_BacC, denom1)
+Type_Month_BacC <- full_join(Type_Month_BacC, denom2)
+
+Month_type_BacC <- Month_type_BacC %>% mutate(CampylobactAbsent = count - countCampylobact) 
+Type_Month_BacC <- Type_Month_BacC %>% mutate(CampylobactAbsent = count - countCampylobact) 
+
+Month_type_BacC <- Month_type_BacC[-which(is.na(Month_type_BacC$Month )),] # remove NAs
+Type_Month_BacC <- Type_Month_BacC[-which(is.na(Type_Month_BacC$Month )),] # remove NAs
+
+df_prob2 <- Month_type_BacC %>% 
+  unite(ID, SampleType, Month, sep = '_')
+
+df_prob2 <- t(df_prob2)
+#colnames(df_prob2) <- df_prob2[1,]
+df_prob2 <- df_prob2[-c(1),]
+
+Broilers4 <- Broilers2
+Broilers4 <- Broilers4 %>% 
+  unite(ID, SampleType, Month, sep = '_')
+
+Broilers5 <- Broilers4 %>% full_join(Broilers2)
+
+
+Broilers5 %>% 
+  ggplot(aes(x=factor(ID),y=as.numeric(Campylobact), colour = factor(SampleType))) + 
+  geom_boxplot() +
+  coord_flip()+
+  ggtitle("Relationship between Type-Month and Ecoli") + 
+  scale_x_discrete(name = "Unique Type-Month ID") + 
+  scale_y_discrete(name = "Campylobact") + 
+  labs(color='Sample Type') 
+
+
+Broilers5 %>% 
+  ggplot(aes(x=factor(ID), fill = factor(Campylobact) )) + 
+  geom_bar(stat = "count", position = "fill") + 
+  scale_y_continuous(labels = scales::percent)+   
+  coord_flip()+
+  ggtitle("Relationship between Type-Month and Campylobact") + 
+  scale_x_discrete(name = "Unique Type-Month ID") + 
+  labs(color='Sample Type') 
+
+
+ggsave(filename = "Figure3_Q2_Type_Month_BacC.png" , width = 10, heigh = 5, device = 'png')
+
+
+
+### FIGRUE 2
+### Save me to plot 
+### !!!!!!!!! NEED TO FIX THIS PLOT SHOULD BE FOR BAC C NOT ECOLI
+ 
+```
+
+
+Fit model 
+
+BacC ~ Type + month 
+```{r}
+
+
+
+g1 = glm(formula = cbind(Month_type_BacC$CampylobactAbsent, Month_type_BacC$countCampylobact) ~ (Month) + SampleType, family = binomial(link = logit), data = Month_type_BacC)
+summary(g1)
+
+trial <- Month_type_BacC
+trial$Month <- factor(trial$Month)
+trial$SampleType <- factor(trial$SampleType)
+
+g1 = glm(formula = cbind(CampylobactAbsent, countCampylobact) ~ (Month) + SampleType, family = binomial(link = logit), data = Month_type_BacC)
+summary(g1)
+
+#g2 = glm(formula = cbind(Type_Month_BacC$CampylobactAbsent, Type_Month_BacC$countCampylobact) ~ Month + SampleType, family = binomial, data = Type_Month_BacC)
+#summary(g2)
+
+
+## Same results for g3 as g4
+g3 = glm(formula = cbind(Month_type_BacC$CampylobactAbsent, Month_type_BacC$countCampylobact) ~ factor(ID), family = binomial(link = logit), data = df_prob2)
+summary(g3)
+
+## Same results for g3 as g3
+factoredID <- factor(Broilers4$ID)
+g4 = glm(formula = Campylobact ~ factoredID, family = binomial(link = logit), data = Broilers4)
+summary(g4)
+
+stargazer(g4, type = "html", title = "Joint-Model for effect of Type-Month on the presence or absence of Campylobact", align = TRUE, out = "Q2_model_stargazer.html" )
+
+## Okay so turns out you get the same model regardless of which order you subset in 
+
+Month_type_BacC <- Month_type_BacC %>% mutate(prop = countCampylobact/count)
+#x1 <- (Type_Month_BacC$countCampylobact)
+
+
+### This graph isn't plotting correctly.... 
+plot(Month_type_BacC$countCampylobact,Month_type_BacC$prop, main="Fit of data", xlim = c(0,20))
+x1 <- seq(0, 20, by = .5)
+y1 <- plogis(g1$coef[1]+x1*g1$coef[2])
+#plot(x1, Type_Month_BacC$prop, xlim = c(0,90))
+points(x1, y1, col = 5, pch = 20, type = "l", lwd=3)
+
+
+
+
+```
+
+check fit of model 
+
+~ 35 interaction terms in the model
+
+```{r}
+
+## VIFs
+
+vif(
+  glm(formula = cbind(Type_Month_BacC$CampylobactAbsent, Type_Month_BacC$countCampylobact) ~ Month + SampleType, family = binomial, data = Type_Month_BacC)
+)
+
+# Can't test VIFs for this one because have fewer than 2 predictors.. 
+#vif(
+#glm(formula = Campylobact ~ factoredID, family = binomial(link = logit), data = Broilers4)
+#)
+
+
+plot(allEffects(g1))
+
+plot(allEffects(g4))
+
+#### How well does our model fit the data? A simple check is a χ2 test for the standardized residuals
+## sample size
+nn <- 1890 ##dim(Broilers4)
+## residuals
+ee <- residuals(g4, type = "response")
+## fitted values
+y_hat <- fitted(g4)
+## standardized residuals
+rr <- ee / (y_hat * (1 - y_hat))
+## test stat
+x2 <- sum(rr)
+## chi^2 test
+pchisq(x2, nn - length(coef(g4)) - 1, lower.tail = FALSE) 
+## The p-value is large so we detect no lack of fit
+
+
+
+
+
+plot(g4) # have problems with qq plot and leverage plot.. 
+
+
+# If you are running a binary logistic model, you can also run the Hosmer Lemeshow Goodness of Fit test on your glm() model. Using the ResourceSelection library.
+hoslem.test(g4$y, g4$fitted)  ## The p-value is large so we conclude an adequate fit
+
+
+### For the final model in (d), draw the index plot of residuals for the three types of residuals we mentioned in the lecture notes.
+ # So the standard residuals, pearson residuals, deviance residuals 
+
+standard = g4$y -  g4$fitted #observed - predicted 
+pearson <-  residuals(g4, "pearson")
+deviance <-  residuals(g4, "deviance")
+
+plot(standard, col = 1, main = "Standard Residuals")
+abline(h=0,col=1)
+
+plot(pearson, col = 2, main = "Pearson Residuals")
+abline(h=0,col=2)
+
+plot(deviance, col = 3, main = "Deviance Residuals")
+abline(h=0,col=3)
+
+
+
+
+# Leaverge: 
+x <- model.matrix(g4)
+lev <- hat(x)
+plot(lev)
+abline(h = 2*5/20) #dim(cins)
+
+leveragePlot(g4)
+
+cooks.distance(g4)
+
+
+### Overdispersion 
+
+g4$deviance/g4$df.residual ## Should be 1
+
+1-pchisq(g4$deviance,g4$df.residual)
+
+dispersiontest(g4,trafo=1)  ## Poisson GLMs can be tested
+
+
+sim_fmp <- simulateResiduals(g4, refit=T) 
+testOverdispersion(sim_fmp)
+testDispersion(sim_fmp)
+
+
+
+## function to calculate dispersion parameter
+c_hat <- function(obs, model) {
+  X2 <- sum((obs - fitted(model))^2 / fitted(model))
+  return(X2 / (length(obs) - length(coef(model))))
+}
+## dispersion parameter
+(c_hat_ted <- c_hat(Broilers4$Campylobact, g4))
+
+
+
+
+
+#dim(Broilers) ## 1892
+nn <- 1892 ## sample size
+## overdispersion parameter
+c_hat <- deviance(g2) / (nn - 2) ## nn is sample size 
+## re-scaled estimates
+faraway::sumary(g2, dispersion = c_hat)
+#Now compare that with original model 
+summary(g2)
+
+
+```
+qq plot notes - "Notice the points fall along a line in the middle of the graph, but curve off in the extremities. Normal Q-Q plots that exhibit this behavior usually mean your data have more extreme values than would be expected if they truly came from a Normal distribution."
+But the deviance residuals don't have to be normally distributed for the model to be valid, so the normality / non-normality of the residuals doesn't necessarily tell you anything
+
+
+reference - https://stats.stackexchange.com/questions/121490/interpretation-of-plot-glm-model
+& - https://statmath.wu.ac.at/courses/heather_turner/glmCourse_002.pdf
+
+
+
+### Question 3
+
+
+Find a parsimonious model of best fit, performing residual analyses and checking for the effects of any influential points.
+
+```{r}
+FecalSoila <-  FecalSoil
+
+## Remove the 2 SampleIDs which are NAs.. 
+FecalSoila <- FecalSoila[-which(is.na(FecalSoila$SampleID)),]
+
+FecalSoila$SampleType <- as.factor(FecalSoila$SampleType)
+FecalSoila$AnimalSource <- as.factor(FecalSoila$AnimalSource)
+
+# let's try dummy coding all the cateogrical variables 
+FecalSoil2 <- FecalSoila %>% dplyr::filter(grepl('Broiler', AnimalSource)) 
+  
+FecalSoil2 <- FecalSoila  %>% 
+  mutate(Broiler = case_when(grepl("Broiler", AnimalSource, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Cattle = case_when(grepl("Cattle", AnimalSource, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Layer = case_when(grepl("Layer", AnimalSource, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Swine = case_when(grepl("Swine", AnimalSource, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Feces = case_when(grepl("Feces", SampleType, ignore.case = TRUE) ~ 1))%>% 
+  mutate(Soil = case_when(grepl("Soil", SampleType, ignore.case = TRUE) ~ 1)) %>% 
+  replace(is.na(.), 0) # then replace all 0s 
+
+
+#Change into proportion 
+colSums(FecalSoil2[,c(11:16)]) 
+FecalSoil2 <- FecalSoil2 %>%
+  mutate(BroilerProp = 1260/1630)%>% 
+  mutate(CattleProp = 90/1630)%>% 
+  mutate(LayerProp = 180/1630)%>% 
+  mutate(SwineProp = 100/1630)%>% 
+  mutate(FecesProp = 815/1630)%>% 
+  mutate(SoilProp = 815/1630)
+
+#Having issues with the class.. need to change to numeric 
+FecalSoil2[,c(7,11:16)] <- sapply(FecalSoil2[ ,c(7,11:16)], as.numeric)
+
+
+
+#set up
+PredictorsOnlyPixel <- FecalSoil2[,c(7)]
+PredictAndResponsePixel <- FecalSoil2[,c(11:16)]
+PredictAndResponseGrid <- FecalSoil2[,c(11:16)]
+  
+# put histograms on the diagonal panel	
+panel.hist <- function (x,...)					# define a function that says what we want to plot in the diagonal
+{
+  usr <- par("usr"); on.exit(par(usr))			# not sure what usr is for?
+  par(usr = c(usr[1:2],0,1.5))
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)			# make the hist 
+  y <- h$counts; y <- y/max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, col="grey", ...)  # defines what the histogram is going to look like
+}
+
+# put correlations on the upper panels,
+panel.cor <- function(x, y, digits=2, prefix="", cex.cor, ...)
+{
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r <- cor(x, y,use="complete.obs")				
+  txt <- format(c(r, 0.123456789), digits=digits)[1]
+  prefix <- "r = "
+  rc <- cor.test(x,y,method = c("pearson"))				## calculate pearsons rho for upper grid
+  txt <- paste(prefix,txt,sep="")
+  text(0.5, 0.5, txt, cex = 1)
+}
+
+## plot a correlation matrix plot that uses the functions specified above to say what to plot where
+      ## this was taken directly from website and still not plotting r values for all 
+#pairs(PredictAndResponsePixel[1:6], lower.panel=panel.smooth, cex = .8, diag.panel=panel.hist, cex.labels = 1.2, font.labels=2, upper.panel=panel.cor)
+
+##Pixel level
+
+pairs(FecalSoil2[c(7,11:16)], lower.panel=panel.smooth, cex = .8, pch = 21, bg="steelblue",
+       diag.panel=panel.hist, cex.labels = 1.2, font.labels=2, upper.panel=panel.cor)
+
+pdf("cormat_model_Q3")
+pairs(FecalSoil2[c(7,11:16)], lower.panel=panel.smooth, cex = .8, pch = 21, bg="steelblue",
+       diag.panel=panel.hist, cex.labels = 1.2, font.labels=2, upper.panel=panel.cor)
+while (!is.null(dev.list()))  dev.off()
+
+### try and figure out how to change lower.panel=panel.smooth to box plots (or to add jitter) right now, just using a predefined function 
+
+
+FecalSoil2 %>% ggplot(aes(x=factor(AnimalSource),y=EcoliLog10)) + 
+  geom_boxplot()  + 
+  ggtitle("Relationship Between Ecoli Level and Animal Source Type") + 
+  scale_x_discrete(name = "Animal Source Type") 
+
+
+ggsave(filename = "Figure_Q4a_EcoliAnimalSource_Boxplot.png" , width = 10, heigh = 5, device = 'png')
+
+
+FecalSoil2 %>% ggplot(aes(x=SampleType,y=EcoliLog10)) + 
+  geom_boxplot() + 
+  ggtitle("Relationship Between Ecoli Level and Sample Type") + 
+  scale_x_discrete(name = "Sample Type") 
+
+
+
+ggsave(filename = "Figure_Q4b_EcoliSampleType_Boxplot.png" , width = 10, heigh = 5, device = 'png')
+
+
+## FIGURE 4 
+
+```
+
+
+
+```{r}
+
+#remove NAs 
+FecalSoil <- FecalSoil[-which(is.na(FecalSoil$EcoliLog10 )),] # remove NAs
+#Have issues with class in df - need to change EcoliLog10 to numeric 
+FecalSoil[,c(7)] <- sapply(FecalSoil[ ,c(7)], as.numeric)
+
+
+model <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil)
+summary(model)
+
+vif(lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil))
+
+
+# Perform residual analysis 
+
+r <- model$residuals
+f <- model$fitted.values
+plot(f, r)
+
+hist(model$residuals)
+
+
+# Leaverge: 
+x <- model.matrix(model)
+lev <- hat(x)
+plot(lev)
+abline(h = 2*5/20) #dim(cins)
+
+
+plot(model)
+
+```
+
+
+Addressing influential points.. 
+
+```{r}
+
+
+
+## Original model 
+model <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil)
+summary(model)
+
+# Influential observations
+cook1 <- cooks.distance(model)
+plot(cook1)
+
+n <- nrow(FecalSoil)
+plot(cook, main = "Cooks Distance for Influential Obs")
+abline(h = 4/n, lty = 2, col = "steelblue") # add cutoff line
+
+
+## points 137 and 385 are problematic.. 
+
+## Let's fit three seperate models - one without 137 [0.02334191], one without 385 [0.02220467 ] and one without both 
+
+top_x_outlier <- 1
+influential1 <- as.numeric(names(sort(cook1, decreasing = TRUE)[1:top_x_outlier]))
+
+FecalSoila <- FecalSoil[-influential1, ]
+modela <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoila)
+cook2 <- cooks.distance(modela)
+plot(cook2)
+identify(1:1623, cook2)
+
+
+#influential2a <- as.numeric(names(sort(cook2, decreasing = TRUE)[1:top_x_outlier]))
+# IDs = AB1-2, EE2-5
+#influential2b <- influential2a -1
+### removing the second most influential point still isn't working.. 
+influential <- as.numeric(names(cook1)[(cook1 = 0.02220467)])
+FecalSoilb <- FecalSoil %>% filter(!(SampleID == "EE2-5" | SampleID == "EE2-4" | SampleID == "EE2-3"))
+modelb <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoilb)
+cook3 <- cooks.distance(modelb)
+plot(cook3)
+identify(1:1623, cook3)
+
+
+
+
+
+### Remove both ... 
+# Alternatively, you can try to remove the top x outliers to have a look
+top_x_outlier <- 2
+influential <- as.numeric(names(sort(cook1, decreasing = TRUE)[1:top_x_outlier]))
+
+FecalSoil4 <- FecalSoil[-influential, ]
+modelc <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil4)
+cook4 <- cooks.distance(modelc)
+plot(cook4)
+
+
+
+### Remove all points over threshold
+
+influential <- as.numeric(names(cook1)[(cook1 > (4/1628))]) ## dim(FecalSoil4)
+FecalSoil5 <- FecalSoil[-influential, ]
+modeld <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil5)
+cook5 <- cooks.distance(modeld)
+plot(cook5)
+
+
+### scrap
+
+### Manually calculating cooks distance 
+
+Hmat = hatvalues(model)
+Leverage = Hmat/(1 - Hmat)
+mse = (model$residuals)^2/var(model$residuals)
+CooksD <- (1/6)*(mse)*Leverage
+
+
+
+FecalSoil$cookd <- cooks.distance(model)
+
+halfnorm(cook, nlab = 2, ylab = "Cook’s Distance")
+
+
+countries <- rownames(prob4)
+x <- c(1:length(FecalSoil$SampleID)) ## length(x) 1630
+cook_base <- cooks.distance(model) ## length(cook_base) 1624
+plot(cook_base, type = "n", main = "Cook's Distance base model", cex.main = 1, 
+     xlab = "countries", ylab = "Cook's Distance")
+segments(x,0,x, cook_base, lwd = 2)
+identify(1:1624, cook_base, FecalSoil$SampleID, cex = .75)
+
+```
+
+Present the findings from cook's distance manipulations
+```{r}
+
+stargazer(model, modelb, modelc, type = "html", title = "The Effect of Influential Points", align = TRUE, out = "Q3_influential_points_models_stargazer.html" )
+
+plot(cook1, main = "Cook's Distance for Entire Model", cex.main = 1, 
+     xlab = "Samples", ylab = "Cook's Distance")
+abline(h = 4/n, lty = 2, col = "steelblue") # add cutoff line
+
+plot(cook2, main = "Cook's Distance: Removed One Influential Point", cex.main = 1, 
+     xlab = "Samples", ylab = "Cook's Distance")
+abline(h = 4/n, lty = 2, col = "steelblue") # add cutoff line
+
+plot(cook4, main = "Cook's Distance: Removed One Influential Point", cex.main = 1, 
+     xlab = "Samples", ylab = "Cook's Distance")
+abline(h = 4/n, lty = 2, col = "steelblue") # add cutoff line
+
+
+modeld <- lm(EcoliLog10 ~ factor(SampleType) + factor(AnimalSource), data = FecalSoil5)
+cook5 <- cooks.distance(modeld)
+plot(cook5)
+abline(h = 4/n, lty = 2, col = "steelblue") # add cutoff line
+
+plot(modelc)
+hist(modelc$residuals)
+
+
+x <- model.matrix(modelc)
+lev <- hat(x)
+plot(lev, main = "Index Plot of Leverages", cex.main = 1, 
+     xlab = "Index", ylab = "Leverages")
+abline(h = 2*5/1528) #dim(FecalSoil4)
+
+jack <- rstudent(modelc)
+plot(jack,ylab="Jackknife Residuals",main="Jackknife Residuals", xlab = "Index")
+jack[abs(jack)==max(abs(jack))]
+
+
+outlierTest(modelc)
+## the Bonferroni p-value for the largest (absolute) residual is not statistically significant. While this test is important for identifying a potentially significant outlying observation, it is not a panacea for checking for patterns in outlying data.
+
+
+#levene's test for constant variance 
+
+```
+lightly tailed
+getting correlated errors because blocked?
+
+
+
+Need to address influential points
+```{r}
+
+
+
+
+##### ALso as seen in the q-q plot- there is an issue with outliers 
+
+
+# Box-Cox transformation.
+# Not going to work because some values are 0.. 
+#boxcox(model,plotit=T)
+#boxcox(model,lambda=seq(0.0,3.0,by=0.05),plotit=T) ### lamda = ~1.5
+#Could change "0" values to .000001 or some very small number because data are not really true zeros - there should still be a tiny amount. 
+
+
+
+
+## revised `halfnorm()` from Faraway
+## `nlab` gives the number of points to label in the plot
+## `labels` can be a character vector the same length as `x`
+##          that can be used to label the points in the plot
+## `ylab` can be used to labeling of the y-axis
+halfnorm <- function(x, nlab = 1, labels = NULL, ylab = "Sorted data") {
+  x <- abs(x)
+  labord <- order(x)
+  x <- sort(x)
+  i <- order(x)
+  n <- length(x)
+  ui <- qnorm((n + 1:n)/(2 * n + 1))
+  if(is.null(labels)) {
+    labels <- as.character(1:length(x))
+  }
+  plot(ui, x[i], pch = 16, las = 1,
+       xlab = "Half-normal quantiles", ylab = ylab, 
+       ylim = c(0, max(x)), type = "n")
+  if(nlab < n) {
+    points(ui[1:(n - nlab)], x[i][1:(n - nlab)], pch = 16)
+  }
+  text(x = ui[(n - nlab + 1):n], y = x[i][(n - nlab + 1):n],
+       labels = labels[labord][(n - nlab + 1):n])
+}
+
+```
+Left sqew in q-q plot? 
+
+have bins of variation instead of normally distrbuted
+
+
+
+
+
+
+
+SCRAP
+
+
+
+```{r eval= FALSE}
+
+BroilersCampylobact <- Broilers %>% group_by(Farm) %>% group_by(Flock) %>% summarise(countCampylobact = sum(Campylobact)) 
+BroilersSalmonella <- Broilers %>% group_by(Farm) %>% group_by(Flock) %>% summarise(countSalmonella = sum(Salmonella)) 
+BroilersListeria <- Broilers %>% group_by(Farm) %>% group_by(Flock) %>% summarise(countListeria = sum(Listeria))
+
+BacCount_Flock <- full_join(BroilersCampylobact, BroilersSalmonella) %>% full_join(BroilersListeria)
+BacCount_Flock <- BacCount_Flock[-which(is.na(BacCount_Flock$Farm )),] # remove NAs
+
+#find denominator 
+denom <- Broilers %>% group_by(Farm) %>% group_by(Flock) %>% summarize(count=n()) # so 45 per group is denominator (there were 2 nas)
+
+
+
+BroilersCampylobact <- Broilers %>% group_by(Farm) %>% summarise(countCampylobact = sum(Campylobact)) 
+BroilersSalmonella <- Broilers %>% group_by(Farm) %>% summarise(countSalmonella = sum(Salmonella)) 
+BroilersListeria <- Broilers %>% group_by(Farm)  %>% summarise(countListeria = sum(Listeria))
+
+BacCount_Farm <- full_join(BroilersCampylobact, BroilersSalmonella) %>% full_join(BroilersListeria)
+
+#find denominator 
+BacCount_Farmdenom <- Broilers %>% group_by(Farm)  %>% summarize(count=n()) # Different numbers per farm.. 
+#Add to other dataset 
+BacCount_Farm <- full_join(BacCount_Farm, BacCount_Farmdenom)
+
+BacCount_Farm <- BacCount_Farm %>% mutate(CampylobactAbsent = count - countCampylobact) %>% 
+  mutate(SalmonellaAbsent = count - countSalmonella) %>% 
+  mutate(ListeriaAbsent = count - countListeria)
+
+BacCount_Farm <- BacCount_Farm[-which(is.na(BacCount_Farm$Farm )),] # remove NAs
+
+
+y = c(BacCount_Farm$countSalmonella, BacCount_Farm$SalmonellaAbsent)
+
+g = glm(formula = cbind(BacCount_Farm$countSalmonella, BacCount_Farm$SalmonellaAbsent) ~ BacCount_Farm$countCampylobact, family = binomial)
+summary(g)
+
+```
+
+
+
+
+### Question 5
+
+
+Trying to get 6 different levels of classification 
+
+```{r}
+
+mydata <- Compositional
+colnames(mydata) <- c("ID"        ,   "Farm"      ,   "PastureTime" , "Flock"   ,     "Sampletype" ,  "A"  ,      "B"      ,     "C"       ,     "D"       ,     "E" )
+
+mydata <- mydata %>% 
+  unite(TimeSample, Sampletype, PastureTime, sep = '_')
+
+
+mydata <- mydata %>% 
+  dplyr::select(TimeSample, A, B,C,D,E)
+
+
+# Converting logical variables to factors
+mydata <- mutate_if(mydata, is.logical, as.factor)
+
+
+mydataTask <- makeClassifTask(data = mydata, target = "TimeSample")
+tree <- makeLearner("classif.rpart")
+
+
+# Printing available rpart hyperparameters
+getParamSet(tree)
+
+## minbucket = 5
+##maxdepth = 3
+
+# Defining the hyperparameter space for tuning
+treeParamSpace <- makeParamSet(
+  makeIntegerParam("minsplit", lower = 5, upper = 20),
+  makeIntegerParam("minbucket", lower = 3, upper = 5),
+  makeNumericParam("cp", lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth", lower = 2, upper = 3))
+
+## results here end up dropping 2 of the categories..   
+treeParamSpace <- makeParamSet(
+  makeIntegerParam("minsplit", lower = 3, upper = 4),
+  makeIntegerParam("minbucket", lower = 3, upper = 5),
+  makeNumericParam("cp", lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth", lower = 2, upper = 3))
+
+
+### ### This is what is written up in the report 
+## New approach --> 
+## results here end up dropping 2 of the categories..   
+treeParamSpace <- makeParamSet(
+  makeIntegerParam("minsplit", lower = 33, upper = 38), #The minimum number of observations in a given category for this data is 33 (Soil Start) and the maximum number of observations we have is 38 (Fecal End). If we didn’t loose any observations, both should be set to 40 
+  makeIntegerParam("minbucket", lower = 33, upper = 38),
+  makeNumericParam("cp", lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth", lower = 2, upper = 2)) 
+
+### ### This is what is written up in the report 
+## New approach --> trying to just get fecal and soil with lower misclassification rate 
+treeParamSpace <- makeParamSet(
+  makeIntegerParam("minsplit", lower = 33, upper = 111), 
+  makeIntegerParam("minbucket", lower = 33, upper = 111),
+  makeNumericParam("cp", lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth", lower = 2, upper = 6)) 
+
+
+# Defining the random search
+randSearch <- makeTuneControlRandom(maxit = 200)
+cvForTuning <- makeResampleDesc("CV", iters = 5)
+
+
+# Performing hyperparameter tuning
+parallelStartSocket(cpus = detectCores()) ## This function doesn't work anymore? 
+
+tunedTreePars <- tuneParams(tree, task = mydataTask,
+                            resampling = cvForTuning,
+                            par.set = treeParamSpace,
+                            control = randSearch)
+
+parallelStop()
+
+tunedTreePars
+
+
+# Training the final tuned model
+tunedTree <- setHyperPars(tree, par.vals = tunedTreePars$x)
+tunedTreeModel <- train(tunedTree, mydataTask)
+
+# Plotting the decision tree
+treeModelData <- getLearnerModel(tunedTreeModel)
+rpart.plot(treeModelData, roundint = FALSE,
+box.palette = "BuBn",
+type = 5)
+
+
+# Exploring the model
+printcp(treeModelData, digits = 3)
+
+
+### Cross-validating our decision tree model
+
+# Cross-validating the model-building process
+outer <- makeResampleDesc("CV", iters = 5)
+treeWrapper <- makeTuneWrapper("classif.rpart", resampling = cvForTuning,
+                               par.set = treeParamSpace,
+                               control = randSearch)
+parallelStartSocket(cpus = detectCores())
+cvWithTuning <- resample(treeWrapper, mydataTask, resampling = outer)
+parallelStop()
+
+# Extracting the cross-validation result
+cvWithTuning
+
+
+```
+
+
+Trying to get 2 different levels of classification.. 
+
+```{r}
+
+mydata <- Compositional
+
+library(mlr)
+
+data(Zoo, package = "mlbench")
+zooTib <- as_tibble(Zoo)
+zooTib
+zooTib <- mutate_if(zooTib, is.logical, as.factor)
+zooTask <- makeClassifTask(data = zooTib, target = "type") 
+tree <- makeLearner("classif.rpart")
+getParamSet(tree)
+
+#Let's define the hyperparameter space we want to search over
+treeParamSpace <- makeParamSet(makeIntegerParam("minsplit", lower = 5, upper = 20), makeIntegerParam("minbucket", lower = 3, upper = 10), makeNumericParam("cp", lower = 0.01, upper = 0.1), makeIntegerParam("maxdepth", lower = 3, upper = 10)) 
+
+randSearch <- makeTuneControlRandom(maxit = 200) 
+cvForTuning <- makeResampleDesc("CV", iters = 5)
+
+
+library(parallel) ;
+library(parallelMap) ;
+parallelStartSocket(cpus = detectCores()) 
+tunedTreePars <- tuneParams(tree, task = zooTask, resampling = cvForTuning, par.set = treeParamSpace, control = randSearch) ; parallelStop()
+
+tunedTree <- setHyperPars(tree, par.vals = tunedTreePars$x) 
+tunedTreeModel <- train(tunedTree, zooTask)
+
+install.packages("rpart.plot"); library(rpart.plot) 
+treeModelData <- getLearnerModel(tunedTreeModel)
+rpart.plot(treeModelData, roundint = FALSE, box.palette = "BuBn", type = 5)
+
+```
+
+
+
+
+```{r}
+library(vegan)
+
+
+set.seed(2)
+community_matrix=matrix(
+   sample(1:100,300,replace=T),nrow=10,
+   dimnames=list(paste("community",1:10,sep=""),paste("sp",1:30,sep="")))
+
+example_NMDS=metaMDS(community_matrix, # Our community-by-species matrix
+                     k=2) # The number of reduced dimensions
+
+
+```
+
+
+
+
+
+
+
